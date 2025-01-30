@@ -33,12 +33,12 @@ const AdminDashboard = () => {
   const [availableSlots, setAvailableSlots] = useState([]);
 
   const [currentUserPage, setCurrentUserPage] = useState(1);
-  const [usersPerPage] = useState(3); // Set the number of users per page
+  const [usersPerPage] = useState(9); // Set the number of users per page
   const [currentReservationPage, setCurrentReservationPage] = useState(1);
   const [reservationsPerPage] = useState(3); // Set the number of reservations per page
 
   const [currentLogPage, setCurrentLogPage] = useState(1);
-  const [logsPerPage] = useState(3); // Set the number of logs per page
+  const [logsPerPage] = useState(15); // Set the number of logs per page
 
   const [hoveredDay, setHoveredDay] = useState(null); // State to track hovered day
 
@@ -49,6 +49,9 @@ const AdminDashboard = () => {
   const [currentRoom1User, setCurrentRoom1User] = useState(null);
   const [currentRoom2User, setCurrentRoom2User] = useState(null);
   const [currentRoom3User, setCurrentRoom3User] = useState(null);
+
+  const [eventDate, setEventDate] = useState(''); // State for event date
+  const [eventDescription, setEventDescription] = useState(''); // State for event description
 
   useEffect(() => {
     fetchUserData();
@@ -231,6 +234,10 @@ const AdminDashboard = () => {
       const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // Add 1 hour
       const endTime = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
 
+      // Determine if the status is "event" and include the event description
+      const status = 'event'; // Set status to "event"
+      const eventDescriptionToSubmit = eventDescription; // Use the event description
+
       const { error } = await supabase
         .from('lab_availability')
         .upsert([
@@ -238,7 +245,9 @@ const AdminDashboard = () => {
             date,
             start_time: startTime,
             end_time: endTime,
-            room: 'Laboratory' // Default room name
+            room: 'Laboratory', // Default room name
+            status: status, // Set status to "event"
+            events: eventDescriptionToSubmit // Add event description to the reservation
           }
         ]);
       if (error) throw error;
@@ -456,13 +465,49 @@ const AdminDashboard = () => {
     }
   };
 
-  const generateCalendar = () => {
+  const handleAddEvent = async (e) => {
+    e.preventDefault();
+    try {
+      // Assuming you have a start time to provide
+      const startTime = "08:00"; // Example start time, adjust as needed
+      const endTime = "18:00";
+      const status = "event";
+      const room = 123;
+
+      const userId = localStorage.getItem("userId"); // Retrieve the current user ID from local storage
+
+      const { error } = await supabase
+        .from('reservations') // Insert into 'reservations' table
+        .insert([{ 
+            date: eventDate, 
+            events: eventDescription, 
+            start_time: startTime, 
+            end_time: endTime, 
+            status: status, 
+            room: room,
+            user_id: userId // Use the current user's ID in the insert statement
+        }]); // Include 'start_time'
+
+      if (error) throw error;
+
+      alert('Event added successfully!'); // Alert for successful addition
+      setEventDate(''); // Reset event date
+      setEventDescription(''); // Reset event description
+      fetchAllData(); // Refresh data to update calendar
+    } catch (error) {
+      console.error('Error details:', error); // Log the error details
+      setError('Error adding event: ' + error.message);
+    }
+  };
+
+  const generateCalendar = async () => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
     const firstDayOfMonth = new Date(year, month, 0).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     const calendarDays = [];
+    const events = await fetchEvents(); // Fetch events from the database
 
     // Adjust the start of the week to Monday
     const adjustedFirstDay = (firstDayOfMonth + 6) % 7;
@@ -481,21 +526,14 @@ const AdminDashboard = () => {
         (reservation) => reservation.date === formattedDate
       );
 
-      const morningReservation = reservationsForDay.find(
-        (reservation) => reservation.status === 'morning'
-      );
-      const afternoonReservation = reservationsForDay.find(
-        (reservation) => reservation.status === 'afternoon'
-      );
+      const isEventDay = events.some(event => event.date === formattedDate); // Check if there's an event on this date
 
-      // Determine the status of the day based on reservations
+      // Determine the status of the day based on reservations and events
       let status;
-      if (morningReservation && afternoonReservation) {
-        status = 'reserved'; // Both morning and afternoon reserved
-      } else if (morningReservation) {
-        status = 'morning'; // Only morning reserved
-      } else if (afternoonReservation) {
-        status = 'afternoon'; // Only afternoon reserved
+      if (isEventDay) {
+        status = 'event'; // Mark as event day
+      } else if (reservationsForDay.length > 0) {
+        status = 'reserved'; // Reserved for other reservations
       } else {
         status = 'available'; // No reservations
       }
@@ -616,6 +654,20 @@ const AdminDashboard = () => {
       setCurrentRoom3User(room3Data);
     } catch (error) {
       setError('Error fetching current room users: ' + error.message);
+    }
+  };
+
+  const fetchEvents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*');
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      setError('Error fetching events: ' + error.message);
+      return [];
     }
   };
 
@@ -750,9 +802,7 @@ const AdminDashboard = () => {
           </div>
         <div>
           <p>Color code:</p>
-          <p style={{ color: 'red' }}>Red - Whole day Reserved</p>
-          <p style={{ color: 'yellow' }}>Yellow - Afternoon Reserved</p>
-          <p style={{ color: 'orange' }}>Orange - Morning Reserved</p>
+          <p style={{ color: 'red' }}>Red - Reserved</p>
           <p style={{ color: 'white' }}>White - Available</p>
         </div>
         </div>
@@ -830,6 +880,29 @@ const AdminDashboard = () => {
       {activeView === 'labManagement' && (
         <div className='main-container'>
           <h2>Manage Laboratory Availability</h2>
+          <form onSubmit={handleAddEvent} className='form'>
+            <div className='make-container'>
+            <div>
+              <label>Select Event Date:</label>
+              <input
+                type="date"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label>Event Description:</label>
+              <input
+                type="text"
+                value={eventDescription}
+                onChange={(e) => setEventDescription(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit">Add Event</button>
+            </div>
+          </form>
           <div className='manage-lab'>
             <h3>Current Room Usage</h3>
             <div>
@@ -838,7 +911,6 @@ const AdminDashboard = () => {
               <p>Room 3: {currentRoom3User ? `${currentRoom3User.users.student_id} from ${currentRoom3User.start_time} to ${currentRoom3User.end_time}` : 'No current user'}</p>
             </div>
           </div>
-
         </div>
       )}
 
@@ -888,27 +960,37 @@ const AdminDashboard = () => {
           {/* User List */}
           <div>
             <h3>User List</h3>
+            <input
+              type="text"
+              placeholder="Search by Username"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)} // Update search term on input change
+              style={{ marginBottom: '10px', padding: '5px', width: '200px' }} // Style for the search input
+            />
             <div className='box-container'>
-              {currentUsers.map((user) => (
-                <div key={user.id}>
-                  <div>
-                    <p>Username: {user.student_id}</p>
-                    <p>
-                      Status: {user.is_active ? 'Active' : 'Inactive'}
-                    </p>
+              {currentUsers
+                .filter(user => user && user.student_id) // Ensure user is not null and has student_id
+                .filter(user => user.student_id.toLowerCase().includes(searchTerm.toLowerCase())) // Filter based on search term
+                .map((user) => (
+                  <div key={user.id}>
+                    <div>
+                      <p>Username: {user.student_id}</p>
+                      <p>
+                        Status: {user.is_active ? 'Active' : 'Inactive'}
+                      </p>
+                    </div>
+                    <div className='admin-button'>
+                      <button
+                        onClick={() => handleDeactivateAccount(user.id, user.is_active)}
+                      >
+                        {user.is_active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </div>
                   </div>
-                  <div className='admin-button'>
-                    <button
-                      onClick={() => handleDeactivateAccount(user.id, user.is_active)}
-                    >
-                      {user.is_active ? 'Deactivate' : 'Activate'}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))}
             </div>
             {/* Pagination Controls */}
-            <div class="history-button">
+            <div className="history-button">
               <button onClick={() => setCurrentUserPage(currentUserPage - 1)} disabled={currentUserPage === 1}>Previous</button>
               <button onClick={() => setCurrentUserPage(currentUserPage + 1)} disabled={indexOfLastUser >= users.length}>Next</button>
             </div>

@@ -378,7 +378,6 @@ button:hover {
 .make-container input {
   width: 200px;
   border: 1px solid #febd00;
-  cursor: pointer;
 }
 
 .make-container button {
@@ -432,7 +431,7 @@ button:hover {
 .history-button {
   display: flex;
   justify-content: center;
-  width: 100%;
+  width: auto;
   height: 50px;
   gap: 30px;
   margin: 10px;

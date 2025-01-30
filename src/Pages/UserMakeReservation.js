@@ -58,6 +58,20 @@ const UserMakeReservation = ({ onReservationSuccess }) => {
     try {
       const userId = localStorage.getItem("userId");
 
+      // Check if the selected date has an event
+      const { data: eventReservations, error: eventError } = await supabase
+        .from("reservations")
+        .select("status")
+        .eq("date", date)
+        .eq("status", "event"); // Check for events on the selected date
+
+      if (eventError) throw eventError;
+
+      if (eventReservations.length > 0) {
+        setError("This day has reservations for events. You cannot add a reservation.");
+        return;
+      }
+
       // Determine the status based on the selected start time
       const status = startTime === "08:00" ? "morning" : "afternoon";
 
