@@ -9,7 +9,7 @@ const UserMakeReservation = ({ onReservationSuccess }) => {
   const [startTime, setStartTime] = useState("");
   const [error, setError] = useState(null);
   const [userProfile, setUserProfile] = useState({ student_id: "" });
-  const [room, setRoom] = useState(1);
+  const [room, setRoom] = useState("");
 
   const navigate = useNavigate();
 
@@ -52,6 +52,19 @@ const UserMakeReservation = ({ onReservationSuccess }) => {
 
     if (selectedDate < today) {
         setError("You cannot reserve a date in the past. Please select a future date.");
+        return;
+    }
+
+    // Check if the current time is past the morning reservation time
+    const currentHour = new Date().getHours(); // Get the current hour
+    if (startTime === "08:00" && currentHour >= 12) {
+        setError("You cannot make a morning reservation after 12 PM. Please select an afternoon time.");
+        return;
+    }
+
+    // Check if the current time is past the afternoon reservation time
+    if (startTime === "13:00" && currentHour >= 17) {
+        setError("You cannot make an afternoon reservation after 5 PM. Please select a different date or time.");
         return;
     }
 
@@ -216,6 +229,7 @@ const UserMakeReservation = ({ onReservationSuccess }) => {
               onChange={(e) => setRoom(e.target.value)}
               required
             >
+              <option value="" disabled>Select Room</option>
               <option value="1">Computer lab 1 - WAC 212</option>
               <option value="2">Computer lab 2 - WAC 213</option>
               <option value="3">Computer lab 3 - NAC 303</option>
@@ -224,7 +238,7 @@ const UserMakeReservation = ({ onReservationSuccess }) => {
           <button type="submit">Make Reservation</button>
         </div>
       </form>
-    </div>
+    </div>''
     </div>
   );
 };

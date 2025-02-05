@@ -23,9 +23,15 @@ const UserDashboard = () => {
   const [tooltip, setTooltip] = useState({ visible: false, content: '' });
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
 
+  const [todayRoomUsers, setTodayRoomUsers] = useState({
+    morningUsers: {},
+    afternoonUsers: {}
+  });
+
   useEffect(() => {
     fetchUserData();
     fetchUserProfile();
+    fetchTodayRoomUsers();
   }, [currentMonth]);
 
   const fetchUserData = async () => {
@@ -132,12 +138,26 @@ const UserDashboard = () => {
       const cancelledReservation = reservationsForDay.find(
         (reservation) => reservation.status === 'cancelled'
       );
+      const eventReservation = reservationsForDay.find(
+        (reservation) => reservation.status === 'event'
+      );
+
+      // Define morningRooms and afternoonRooms here
+      const morningRooms = reservationsForDay
+        .filter(reservation => reservation.status === 'morning')
+        .map(reservation => reservation.user_id === userId ? `Room ${reservation.room} (You)` : `Room ${reservation.room} (Other users)`)
+        .join(', ');
+
+      const afternoonRooms = reservationsForDay
+        .filter(reservation => reservation.status === 'afternoon')
+        .map(reservation => reservation.user_id === userId ? `Room ${reservation.room} (You)` : `Room ${reservation.room} (Other users)`)
+        .join(', ');
 
       // Update status logic to prioritize reserved over cancelled
       calendarDays.push({
         date: formattedDate,
         status: (morningReservation || afternoonReservation) ? 
-          (morningReservation && afternoonReservation ? 'red' : (afternoonReservation ? 'afternoon' : 'morning')) : 
+          (morningReservation.user_id === userId ? 'orange' : 'gray') : 
           (cancelledReservation ? 'empty' : 'empty'),
       });
     }
@@ -202,6 +222,85 @@ const UserDashboard = () => {
     navigate(`/make-reservation?date=${date}`);
   };
 
+  const fetchTodayRoomUsers = async () => {
+    const today = new Date();
+    const formattedDate = today.toISOString().split('T')[0]; // Format date as YYYY-MM-DD
+    console.log("Fetching room users for date:", formattedDate); // Debug log
+
+    try {
+        const { data, error } = await supabase
+            .from("reservations")
+            .select("user_id, room, status") // Include status in the query
+            .eq("date", formattedDate);
+
+        if (error) {
+            console.error("Error fetching reservations:", error.message); // Debug log
+            throw error;
+        }
+
+        console.log("Reservations data:", data); // Debug log
+
+        // Map user IDs to usernames
+        const userIds = data.map(reservation => reservation.user_id);
+        if (userIds.length === 0) {
+            console.log("No reservations found for today."); // Debug log
+            return { morningUsers: {}, afternoonUsers: {} };
+        }
+
+        const { data: usersData, error: usersError } = await supabase
+            .from("users")
+            .select("id, student_id")
+            .in("id", userIds);
+
+        if (usersError) {
+            console.error("Error fetching users:", usersError.message); // Debug log
+            throw usersError;
+        }
+
+        console.log("Users data:", usersData); // Debug log
+
+        // Create mappings for morning and afternoon users
+        const morningUsers = {};
+        const afternoonUsers = {};
+        
+        data.forEach(reservation => {
+            const user = usersData.find(user => user.id === reservation.user_id);
+            if (user) {
+                const roomNumber = parseInt(reservation.room); // Ensure room number is an integer
+                if (reservation.status === "morning") {
+                    if (!morningUsers[roomNumber]) {
+                        morningUsers[roomNumber] = [];
+                    }
+                    morningUsers[roomNumber].push(user.student_id);
+                } else if (reservation.status === "afternoon") {
+                    if (!afternoonUsers[roomNumber]) {
+                        afternoonUsers[roomNumber] = [];
+                    }
+                    afternoonUsers[roomNumber].push(user.student_id);
+                }
+            } else {
+                console.warn(`User not found for user_id: ${reservation.user_id}`); // Debug log
+            }
+        });
+
+        console.log("Morning users mapping:", morningUsers); // Debug log
+        console.log("Afternoon users mapping:", afternoonUsers); // Debug log
+        return { morningUsers, afternoonUsers };
+    } catch (error) {
+        console.error("Error fetching room users:", error.message);
+        return { morningUsers: {}, afternoonUsers: {} };
+    }
+  };
+
+  useEffect(() => {
+    const loadRoomUsers = async () => {
+      const roomUsers = await fetchTodayRoomUsers();
+      setTodayRoomUsers(roomUsers); // Set the state with fetched room users
+    };
+
+    loadRoomUsers();
+  }, []); // Empty dependency array to run only on mount
+
   return (
     <div className="main">
       <div className='logo'> 
@@ -246,6 +345,12 @@ const UserDashboard = () => {
       <div className="dashboard-container">
         <h2>Calendar</h2>
         <span>{currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+        <div className="month-button">
+          <div>
+          <button onClick={handlePreviousMonth}>Previous</button>
+          <button onClick={handleNextMonth}>Next</button>
+          </div>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '10px' }}>
           {['M', 'T', 'W', 'Th', 'F', 'S', 'Su'].map((day, index) => (
             <div key={index} style={{ textAlign: 'center', fontWeight: 'bold' }}>
@@ -260,21 +365,19 @@ const UserDashboard = () => {
             );
 
             const morningReservation = reservationsForDay.find(
-              (reservation) => reservation.status === 'morning' && reservation.user_id === userId
+              (reservation) => reservation.status === 'morning'
             );
             const afternoonReservation = reservationsForDay.find(
-              (reservation) => reservation.status === 'afternoon' && reservation.user_id === userId
+              (reservation) => reservation.status === 'afternoon'
             );
             const cancelledReservation = reservationsForDay.find(
-              (reservation) => reservation.status === 'cancelled' && reservation.user_id === userId
+              (reservation) => reservation.status === 'cancelled'
+            );
+            const eventReservation = reservationsForDay.find(
+              (reservation) => reservation.status === 'event'
             );
 
-            const hasOtherUserReservations = reservationsForDay.some(
-              (reservation) => reservation.user_id !== userId
-            );
-
-            // Modify tooltip content based on reservation status
-            let tooltipContent = '';
+            // Define morningRooms and afternoonRooms here
             const morningRooms = reservationsForDay
               .filter(reservation => reservation.status === 'morning')
               .map(reservation => reservation.user_id === userId ? `Room ${reservation.room} (You)` : `Room ${reservation.room} (Other users)`)
@@ -285,19 +388,36 @@ const UserDashboard = () => {
               .map(reservation => reservation.user_id === userId ? `Room ${reservation.room} (You)` : `Room ${reservation.room} (Other users)`)
               .join(', ');
 
-            if (morningRooms || afternoonRooms) {
+            // Determine background color based on reservation status
+            const backgroundColor = eventReservation ? 'red' : 
+                                    (morningReservation && morningReservation.user_id === userId) || 
+                                    (afternoonReservation && afternoonReservation.user_id === userId) ? 'orange' : 
+                                    (morningReservation || afternoonReservation) ? 'gray' : 
+                                    'white';
+
+            // Modify tooltip content based on reservation status
+            let tooltipContent = '';
+            if (eventReservation) {
               tooltipContent = (
                 <div>
-                  {morningRooms && <div>8:00am - 12:00pm: {morningRooms}</div>}
-                  {afternoonRooms && <div>1:00pm - 5:00pm: {afternoonRooms}</div>}
+                  <div>Event Day: {eventReservation.events}</div>
                 </div>
               );
-            } else if (cancelledReservation) {
-              tooltipContent = (
-                <div>
-                  {`${formatTime(cancelledReservation.start_time)} - ${formatTime(cancelledReservation.end_time)} (cancelled, Room ${cancelledReservation.room})`}
-                </div>
-              );
+            } else {
+              if (morningRooms || afternoonRooms) {
+                tooltipContent = (
+                  <div>
+                    {morningRooms && <div>8:00am - 12:00pm: {morningRooms}</div>}
+                    {afternoonRooms && <div>1:00pm - 5:00pm: {afternoonRooms}</div>}
+                  </div>
+                );
+              } else if (cancelledReservation) {
+                tooltipContent = (
+                  <div>
+                    {`${formatTime(cancelledReservation.start_time)} - ${formatTime(cancelledReservation.end_time)} (cancelled, Room ${cancelledReservation.room})`}
+                  </div>
+                );
+              }
             }
 
             return (
@@ -305,7 +425,7 @@ const UserDashboard = () => {
                 key={index}
                 onClick={() => day.date && handleDayClick(day.date)}
                 style={{
-                  backgroundColor: (morningReservation || afternoonReservation) ? getStatusColor(day.status) : (hasOtherUserReservations ? 'gray' : 'white'),
+                  backgroundColor: backgroundColor, // Set background color based on reservation status
                   padding: '10px',
                   border: '1px solid #ccc',
                   textAlign: 'center',
@@ -345,12 +465,6 @@ const UserDashboard = () => {
           })}
         </div>
         <div className="bottom-container">
-        <div className="month-button">
-          <div>
-          <button onClick={handlePreviousMonth}>Previous</button>
-          <button onClick={handleNextMonth}>Next</button>
-          </div>
-          </div>
         <div>
             <p>Rooms</p>
             <p>Room 1 = Computer lab 1 - WAC 212</p>
@@ -359,13 +473,31 @@ const UserDashboard = () => {
           </div>
         <div>
           <p>Color code Reservation:</p>
-          <p style={{ color: 'orange' }}>Orange - Morning</p>
-          <p style={{ color: 'yellow' }}>Yellow - Afternoon</p>
-          <p style={{ color: 'red' }}>Red - Whole Day</p>
+          <p style={{ color: 'orange' }}>Orange - Your Reservation</p>
+          <p style={{ color: 'gray' }}>Gray - Other's Reservation</p>
+          <p style={{ color: 'red' }}>Red - Event</p>
           <p style={{ color: 'white' }}>White - Available</p>
         </div>
         </div>
+        <div className="todaysRoom">
+        <h1>Today's Room User</h1>
+        <div className="currentRoom-container">
+          <div className="currentRoom">
+            <h3>Morning {"(8:00am to 12:00pm)"}</h3>
+            <div>Room 1: {todayRoomUsers.morningUsers[1]?.join(', ') || 'No users'}</div>
+            <div>Room 2: {todayRoomUsers.morningUsers[2]?.join(', ') || 'No users'}</div>
+            <div>Room 3: {todayRoomUsers.morningUsers[3]?.join(', ') || 'No users'}</div>
+          </div>
+          <div className="currentRoom">
+            <h3>Afternoon {"(1:00pm to 5:00pm)"}</h3>
+            <div>Room 1: {todayRoomUsers.afternoonUsers[1]?.join(', ') || 'No users'}</div>
+            <div>Room 2: {todayRoomUsers.afternoonUsers[2]?.join(', ') || 'No users'}</div>
+            <div>Room 3: {todayRoomUsers.afternoonUsers[3]?.join(', ') || 'No users'}</div>
+          </div>
+        </div>
       </div>
+      </div>
+      
 
       {tooltip.visible && (
         <div className="tooltip" style={{ position: 'absolute', top: tooltipPosition.top, left: tooltipPosition.left, backgroundColor: 'rgba(0, 0, 0, 0.7)', color: 'white', padding: '5px', borderRadius: '5px' }}>

@@ -53,6 +53,26 @@ const AdminDashboard = () => {
   const [eventDate, setEventDate] = useState(''); // State for event date
   const [eventDescription, setEventDescription] = useState(''); // State for event description
 
+  const EMAIL_DOMAIN = '@liceo.edu.ph'; // Define the email domain constant
+
+  const [emailError, setEmailError] = useState(''); // State for email-specific error
+
+  const [tooltip, setTooltip] = useState({ visible: false, content: '' });
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+
+  const [currentRoomUsers, setCurrentRoomUsers] = useState({
+    currentMorningUsers: {},
+    currentAfternoonUsers: {},
+  });
+
+  const formatTime = (time) => {
+    const [hours, minutes] = time.split(":");
+    const hour = parseInt(hours);
+    const suffix = hour >= 12 ? 'PM' : 'AM';
+    const formattedHour = hour % 12 || 12; // Convert 0 to 12 for 12 AM
+    return `${formattedHour}:${minutes} ${suffix}`;
+  };
+
   useEffect(() => {
     fetchUserData();
     generateCalendar();
@@ -261,7 +281,13 @@ const AdminDashboard = () => {
   // User Management Functions
   const handleAddUser = async (e) => {
     e.preventDefault();
+    setEmailError(''); // Reset email error state
     try {
+      // Validate email domain
+      if (!email.endsWith(EMAIL_DOMAIN)) {
+        setEmailError('Email should be @liceo.edu.ph'); // Set the email-specific error message
+        return; // Exit the function if there's an error
+      }
       // Check if username already exists
       const { data: existingUser, error: checkError } = await supabase
         .from('users')
@@ -509,48 +535,53 @@ const AdminDashboard = () => {
     const calendarDays = [];
     const events = await fetchEvents(); // Fetch events from the database
 
+    // Ensure events are fetched correctly
+    if (!events || events.length === 0) {
+        console.error('No events found');
+    }
+
     // Adjust the start of the week to Monday
     const adjustedFirstDay = (firstDayOfMonth + 6) % 7;
 
     // Fill in the days before the first day of the month
     for (let i = 0; i < adjustedFirstDay; i++) {
-      calendarDays.push({ date: null, status: 'empty' });
+        calendarDays.push({ date: null, status: 'empty' });
     }
 
     // Fill in the days of the month
     for (let i = 1; i <= daysInMonth; i++) {
-      const date = new Date(year, month, i);
-      const formattedDate = date.toISOString().split('T')[0];
+        const date = new Date(year, month, i);
+        const formattedDate = date.toISOString().split('T')[0];
 
-      const reservationsForDay = myReservations.filter(
-        (reservation) => reservation.date === formattedDate
-      );
+        const reservationsForDay = myReservations.filter(
+            (reservation) => reservation.date === formattedDate
+        );
 
-      const isEventDay = events.some(event => event.date === formattedDate); // Check if there's an event on this date
+        const isEventDay = events.some(event => event.date === formattedDate); // Check if there's an event on this date
 
-      // Determine the status of the day based on reservations and events
-      let status;
-      if (isEventDay) {
-        status = 'event'; // Mark as event day
-      } else if (reservationsForDay.length > 0) {
-        status = 'reserved'; // Reserved for other reservations
-      } else {
-        status = 'available'; // No reservations
-      }
+        // Determine the status of the day based on reservations and events
+        let status;
+        if (isEventDay) {
+            status = 'event'; // Mark as event day
+        } else if (reservationsForDay.length > 0) {
+            status = 'reserved'; // Reserved for other reservations
+        } else {
+            status = 'available'; // No reservations
+        }
 
-      calendarDays.push({
-        date: formattedDate,
-        status: status,
-        reservations: reservationsForDay, // Store reservations for the day
-      });
+        calendarDays.push({
+            date: formattedDate,
+            status: status,
+            reservations: reservationsForDay, // Store reservations for the day
+        });
     }
 
     // Ensure the last day of the month is included
     if (calendarDays.length % 7 !== 0) {
-      const remainingDays = 7 - (calendarDays.length % 7);
-      for (let i = 0; i < remainingDays; i++) {
-        calendarDays.push({ date: null, status: 'empty' });
-      }
+        const remainingDays = 7 - (calendarDays.length % 7);
+        for (let i = 0; i < remainingDays; i++) {
+            calendarDays.push({ date: null, status: 'empty' });
+        }
     }
 
     setCalendar(calendarDays);
@@ -612,48 +643,43 @@ const AdminDashboard = () => {
   const fetchCurrentRoomUsers = async () => {
     try {
       const now = new Date();
+      const currentDate = now.toISOString().split('T')[0]; // Get the current date in YYYY-MM-DD format
       const nowTime = now.toTimeString().split(' ')[0]; // Extracts 'HH:MM:SS' from the current time
 
-      const { data: room1Data, error: room1Error } = await supabase
-        .from('reservations')
-        .select('users(student_id), start_time, end_time, room')
-        .eq('room', 1)
-        .lte('start_time', nowTime)
-        .gte('end_time', nowTime)
-        .single();
+      const morningUsers = {};
+      const afternoonUsers = {};
 
-      if (room1Error) {
-        console.error('Error fetching room 1 data:', room1Error);
-        throw room1Error;
+      // Fetch data for each room for the morning session
+      for (let room = 1; room <= 3; room++) {
+        const { data, error } = await supabase
+          .from('reservations')
+          .select('users(student_id), start_time, end_time')
+          .eq('room', room)
+          .eq('date', currentDate) // Filter by current date
+          .lte('start_time', '12:00:00')
+          .gte('end_time', '08:00:00');
+
+        if (error) throw error;
+        morningUsers[room] = data ? data.map(user => user.users.student_id) : [];
       }
-      
-      console.log('Room 1 data:', room1Data); // Log the fetched data
-      setCurrentRoom1User(room1Data);
 
-      const { data: room2Data, error: room2Error } = await supabase
-        .from('reservations')
-        .select('users(student_id), start_time, end_time, room')
-        .eq('room', 2)
-        .lte('start_time', nowTime)
-        .gte('end_time', nowTime)
-        .single();
+      // Fetch data for each room for the afternoon session
+      for (let room = 1; room <= 3; room++) {
+        const { data, error } = await supabase
+          .from('reservations')
+          .select('users(student_id), start_time, end_time')
+          .eq('room', room)
+          .eq('date', currentDate) // Filter by current date
+          .lte('end_time', '17:00:00')
+          .gte('start_time', '13:00:00');
 
-      if (room2Error) throw room2Error;
-      setCurrentRoom2User(room2Data);
+        if (error) throw error;
+        afternoonUsers[room] = data ? data.map(user => user.users.student_id) : [];
+      }
 
-      // Fetch data for Room 3
-      const { data: room3Data, error: room3Error } = await supabase
-        .from('reservations')
-        .select('users(student_id), start_time, end_time, room')
-        .eq('room', 3)
-        .lte('start_time', nowTime)
-        .gte('end_time', nowTime)
-        .single();
-
-      if (room3Error) throw room3Error;
-      setCurrentRoom3User(room3Data);
+      setCurrentRoomUsers({ currentMorningUsers: morningUsers, currentAfternoonUsers: afternoonUsers });
     } catch (error) {
-      setError('Error fetching current room users: ' + error.message);
+      setError('Error fetching today\'s room users: ' + error.message);
     }
   };
 
@@ -725,75 +751,111 @@ const AdminDashboard = () => {
       {/* Dashboard View */}
       {activeView === 'dashboard' && (
           <div className="dashboard-container">
-             {/* Calendar View */}
+
+        {/* Calendar View */}
         <h2>Calendar</h2>
         <span>{currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '10px' }}>
-          {calendar.map((day, index) => {
-            let backgroundColor;
-            switch (day.status) {
-              case 'reserved':
-                backgroundColor = 'red'; // Both morning and afternoon reserved
-                break;
-              case 'morning':
-                backgroundColor = 'orange'; // Only morning reserved
-                break;
-              case 'afternoon':
-                backgroundColor = 'yellow'; // Only afternoon reserved
-                break;
-              default:
-                backgroundColor = 'white'; // Available
-            }
-
-            return (
-              <div
-                key={index}
-                style={{
-                  backgroundColor: backgroundColor,
-                  padding: '10px',
-                  border: '1px solid #ccc',
-                  textAlign: 'center',
-                  position: 'relative', // Position relative for tooltip
-                }}
-                onMouseEnter={() => setHoveredDay(day)} // Set hovered day on mouse enter
-                onMouseLeave={() => setHoveredDay(null)} // Clear hovered day on mouse leave
-              >
-                {day.date ? new Date(day.date).getDate() : ''}
-                {hoveredDay === day && (day.reservations && day.reservations.length > 0) && ( // Show tooltip if hovered day has reservations
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                    color: 'white',
-                    padding: '5px',
-                    borderRadius: '5px',
-                    zIndex: 1,
-                    display: 'flex', // Use flexbox for horizontal layout
-                    flexDirection: 'row', // Arrange items in a row
-                    whiteSpace: 'nowrap', // Prevent wrapping
-                  }}>
-                    {day.reservations.map((reservation, idx) => (
-                      <div key={idx} style={{ marginRight: '10px' }}> {/* Add margin for spacing */}
-                        <p style={{ margin: 0 }}>Username: {reservation.users.student_id}</p>
-                        <p style={{ margin: 0 }}>Time: {reservation.start_time} - {reservation.end_time}</p>
-                        <p style={{ margin: 0 }}>Room: {reservation.room}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div className="bottom-container">
         <div className="month-button">
           <div>
           <button onClick={handlePreviousMonth}>Previous</button>
           <button onClick={handleNextMonth}>Next</button>
           </div>
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '10px' }}>
+          {['M', 'T', 'W', 'Th', 'F', 'S', 'Su'].map((day, index) => (
+            <div key={index} style={{ textAlign: 'center', fontWeight: 'bold' }}>
+              {day}
+            </div>
+          ))}
+          
+          {calendar.map((day, index) => {
+            const reservationsForDay = myReservations.filter(
+                (reservation) => reservation.date === day.date
+            );
+
+            const morningReservation = reservationsForDay.find(
+                (reservation) => reservation.status === 'morning'
+            );
+            const afternoonReservation = reservationsForDay.find(
+                (reservation) => reservation.status === 'afternoon'
+            );
+            const cancelledReservation = reservationsForDay.find(
+                (reservation) => reservation.status === 'cancelled'
+            );
+            const eventReservation = reservationsForDay.find(
+                (reservation) => reservation.status === 'event'
+            );
+
+            // Determine background color based on reservation status
+            const backgroundColor = eventReservation ? 'red' : 
+                                    (morningReservation ? 'gray' : 
+                                    (afternoonReservation ? 'gray' : 
+                                    (cancelledReservation ? 'white' : 'white')));
+
+            // Modify tooltip content based on reservation status
+            let tooltipContent = [];
+            if (morningReservation) {
+                tooltipContent.push(
+                    <div key={`morning-${morningReservation.id}`} className='tooltip-content'>
+                        <strong>Room:</strong> {morningReservation.room}<br />
+                        <strong>Time:</strong> {formatTime(morningReservation.start_time)} - {formatTime(morningReservation.end_time)}<br />
+                        <strong>Username:</strong> {morningReservation.users.student_id}
+                    </div>
+                );
+            }
+            if (afternoonReservation) {
+                tooltipContent.push(
+                    <div key={`afternoon-${afternoonReservation.id}`} className='tooltip-content'>
+                        <strong>Room:</strong> {afternoonReservation.room}<br />
+                        <strong>Time:</strong> {formatTime(afternoonReservation.start_time)} - {formatTime(afternoonReservation.end_time)}<br />
+                        <strong>Username:</strong> {afternoonReservation.users.student_id}
+                    </div>
+                );
+            }
+            if (cancelledReservation) {
+                tooltipContent.push(
+                    <div key={`cancelled-${cancelledReservation.id}`} className='tooltip-content'>
+                        <strong>Room:</strong> {cancelledReservation.room}<br />
+                        <strong>Time:</strong> {formatTime(cancelledReservation.start_time)} - {formatTime(cancelledReservation.end_time)}<br />
+                        <strong>Username:</strong> {cancelledReservation.users.student_id} (Cancelled)
+                    </div>
+                );
+            }
+            if (eventReservation) {
+                tooltipContent.push(
+                    <div key={`event-${eventReservation.id}`}>
+                        <strong>Event:</strong> {eventReservation.events}<br />
+                        <strong>Room:</strong> {eventReservation.room}<br />
+                        <strong>Time:</strong> {formatTime(eventReservation.start_time)} - {formatTime(eventReservation.end_time)}
+                    </div>
+                );
+            }
+
+            return (
+                <div
+                    key={index}
+                    style={{
+                        backgroundColor: backgroundColor,
+                        padding: '10px',
+                        border: '1px solid #ccc',
+                        textAlign: 'center',
+                        position: 'relative',
+                        cursor: 'pointer',
+                    }}
+                    onMouseEnter={(event) => {
+                        setTooltip({ visible: true, content: tooltipContent });
+                        setTooltipPosition({ top: event.clientY, left: event.clientX });
+                    }}
+                    onMouseLeave={() => {
+                        setTooltip({ visible: false, content: '' });
+                    }}
+                >
+                    {day.date ? new Date(day.date).getDate() : ''}
+                </div>
+            );
+          })}
+        </div>
+        <div className="bottom-container">
         <div>
             <p>Rooms</p>
             <p>Room 1 = Computer lab 1 - WAC 212</p>
@@ -805,6 +867,24 @@ const AdminDashboard = () => {
           <p style={{ color: 'red' }}>Red - Reserved</p>
           <p style={{ color: 'white' }}>White - Available</p>
         </div>
+        </div>
+         {/* Today's Room User Section */}
+         <div className="todaysRoom">
+          <h1>Today's Room User</h1>
+          <div className="currentRoom-container">
+            <div className="currentRoom">
+              <h3>Morning {"(8:00am to 12:00pm)"}</h3>
+              <div>Room 1: {currentRoomUsers.currentMorningUsers[1]?.join(', ') || 'No users'}</div>
+              <div>Room 2: {currentRoomUsers.currentMorningUsers[2]?.join(', ') || 'No users'}</div>
+              <div>Room 3: {currentRoomUsers.currentMorningUsers[3]?.join(', ') || 'No users'}</div>
+            </div>
+            <div className="currentRoom">
+              <h3>Afternoon {"(1:00pm to 5:00pm)"}</h3>
+              <div>Room 1: {currentRoomUsers.currentAfternoonUsers[1]?.join(', ') || 'No users'}</div>
+              <div>Room 2: {currentRoomUsers.currentAfternoonUsers[2]?.join(', ') || 'No users'}</div>
+              <div>Room 3: {currentRoomUsers.currentAfternoonUsers[3]?.join(', ') || 'No users'}</div>
+            </div>
+          </div>
         </div>
       </div>
       )}
@@ -903,14 +983,6 @@ const AdminDashboard = () => {
             <button type="submit">Add Event</button>
             </div>
           </form>
-          <div className='manage-lab'>
-            <h3>Current Room Usage</h3>
-            <div>
-              <p>Room 1: {currentRoom1User ? `${currentRoom1User.users.student_id} from ${currentRoom1User.start_time} to ${currentRoom1User.end_time}` : 'No current user'}</p>
-              <p>Room 2: {currentRoom2User ? `${currentRoom2User.users.student_id} from ${currentRoom2User.start_time} to ${currentRoom2User.end_time}` : 'No current user'}</p>
-              <p>Room 3: {currentRoom3User ? `${currentRoom3User.users.student_id} from ${currentRoom3User.start_time} to ${currentRoom3User.end_time}` : 'No current user'}</p>
-            </div>
-          </div>
         </div>
       )}
 
@@ -923,6 +995,7 @@ const AdminDashboard = () => {
           
             <h3>Add New User</h3>
             <form onSubmit={handleAddUser} className='form'>
+              
             <div className='make-container'>
               <div>
                 <label>Username:</label>
@@ -956,45 +1029,48 @@ const AdminDashboard = () => {
               </button>
               </div>
             </form>
-        
-          {/* User List */}
-          <div>
-            <h3>User List</h3>
-            <input
-              type="text"
-              placeholder="Search by Username"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)} // Update search term on input change
-              style={{ marginBottom: '10px', padding: '5px', width: '200px' }} // Style for the search input
-            />
-            <div className='box-container'>
-              {currentUsers
-                .filter(user => user && user.student_id) // Ensure user is not null and has student_id
-                .filter(user => user.student_id.toLowerCase().includes(searchTerm.toLowerCase())) // Filter based on search term
-                .map((user) => (
-                  <div key={user.id}>
-                    <div>
-                      <p>Username: {user.student_id}</p>
-                      <p>
-                        Status: {user.is_active ? 'Active' : 'Inactive'}
-                      </p>
+
+            {/* Display email-specific error message if it exists */}
+            {emailError && <div className="error-message">{emailError}</div>} {/* Email error message div */}
+
+            {/* User List */}
+            <div>
+              <h3>User List</h3>
+              <input
+                type="text"
+                placeholder="Search by Username"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)} // Update search term on input change
+                style={{ marginBottom: '10px', padding: '5px', width: '200px' }} // Style for the search input
+              />
+              <div className='box-container'>
+                {currentUsers
+                  .filter(user => user && user.student_id) // Ensure user is not null and has student_id
+                  .filter(user => user.student_id.toLowerCase().includes(searchTerm.toLowerCase())) // Filter based on search term
+                  .map((user) => (
+                    <div key={user.id}>
+                      <div>
+                        <p>Username: {user.student_id}</p>
+                        <p>
+                          Status: {user.is_active ? 'Active' : 'Inactive'}
+                        </p>
+                      </div>
+                      <div className='admin-button'>
+                        <button
+                          onClick={() => handleDeactivateAccount(user.id, user.is_active)}
+                        >
+                          {user.is_active ? 'Deactivate' : 'Activate'}
+                        </button>
+                      </div>
                     </div>
-                    <div className='admin-button'>
-                      <button
-                        onClick={() => handleDeactivateAccount(user.id, user.is_active)}
-                      >
-                        {user.is_active ? 'Deactivate' : 'Activate'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+              </div>
+              {/* Pagination Controls */}
+              <div className="history-button">
+                <button onClick={() => setCurrentUserPage(currentUserPage - 1)} disabled={currentUserPage === 1}>Previous</button>
+                <button onClick={() => setCurrentUserPage(currentUserPage + 1)} disabled={indexOfLastUser >= users.length}>Next</button>
+              </div>
             </div>
-            {/* Pagination Controls */}
-            <div className="history-button">
-              <button onClick={() => setCurrentUserPage(currentUserPage - 1)} disabled={currentUserPage === 1}>Previous</button>
-              <button onClick={() => setCurrentUserPage(currentUserPage + 1)} disabled={indexOfLastUser >= users.length}>Next</button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1002,23 +1078,60 @@ const AdminDashboard = () => {
       {activeView === 'logs' && (
         <div className='main-container'>
           <h2>System Logs</h2>
-          <div className='box-container'>
-            {currentLogs.length > 0 ? (
-              currentLogs.map((log) => (
-                <div key={log.id}>
-                  <p>Description: {log.description || 'No description available'}</p>
-                  <p>Timestamp: {new Date(log.created_at).toLocaleString()}</p>
-                </div>
-              ))
-            ) : (
-              <p>No logs available.</p>
-            )}
+          <div className='logs-container' style={{ display: 'flex', justifyContent: 'space-between' }}>
+            {/* Combine, sort, and filter logs */}
+            {(() => {
+              const sortedLogs = currentLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // Sort descending
+
+              // Divide logs into categories
+              const createdLogs = sortedLogs.filter(log => log.description.includes('created')).slice(0, 5);
+              const updatedLogs = sortedLogs.filter(log => log.description.includes('updated')).slice(0, 5);
+              const deletedLogs = sortedLogs.filter(log => log.description.includes('deleted')).slice(0, 5);
+
+              return (
+                <>
+                  <div className='logs-column'>
+                    <h3>Created</h3>
+                    {createdLogs.map((log) => (
+                      <div key={log.id}>
+                        <p>Description: {log.description || 'No description available'}</p>
+                        <p>Timestamp: {new Date(log.created_at).toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className='logs-column'>
+                    <h3>Updated</h3>
+                    {updatedLogs.map((log) => (
+                      <div key={log.id}>
+                        <p>Description: {log.description || 'No description available'}</p>
+                        <p>Timestamp: {new Date(log.created_at).toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className='logs-column'>
+                    <h3>Deleted</h3>
+                    {deletedLogs.map((log) => (
+                      <div key={log.id}>
+                        <p>Description: {log.description || 'No description available'}</p>
+                        <p>Timestamp: {new Date(log.created_at).toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </div>
           {/* Pagination Controls for Logs */}
-          <div>
+          <div className="history-button">
             <button onClick={() => setCurrentLogPage(currentLogPage - 1)} disabled={currentLogPage === 1}>Previous</button>
             <button onClick={() => setCurrentLogPage(currentLogPage + 1)} disabled={indexOfLastLog >= filteredLogs.length}>Next</button>
           </div>
+        </div>
+      )}
+
+      {tooltip.visible && (
+        <div className="tooltip" style={{ position: 'absolute', top: tooltipPosition.top, left: tooltipPosition.left, backgroundColor: 'rgba(0, 0, 0, 0.7)', color: 'white', padding: '5px', borderRadius: '5px' }}>
+            {tooltip.content}
         </div>
       )}
     </div>

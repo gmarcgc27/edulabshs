@@ -206,6 +206,22 @@ button:hover {
   height: 100%;
 }
 
+.logs-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.logs-column div {
+  display: flex;
+  flex-direction: column;
+  line-height: 0.5;
+  width: 300px;
+  background-color: #720000;
+  color: white;
+  border-radius: 10px;
+  margin: 10px 10px 10px 10px;
+}
+
 .box-container {
   display: flex;
   flex-direction: row;
@@ -304,6 +320,14 @@ button:hover {
   color: black;
   border-radius: 10px;
   transition: 0.2s ease-out;
+}
+
+.month-button div{
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  justify-content: space-between;
+  align-items: space-between;
 }
 
 .month-button button{
@@ -521,4 +545,33 @@ button:hover {
   background: linear-gradient(to left, rgba(114, 0, 0, 1), rgba(0, 0, 0, 0));
   z-index: 1;
   pointer-events: none;
+}
+
+.tooltip-content {
+  margin-bottom: 5px;
+  color: white;
+}
+
+.todaysRoom {
+  margin-top: 50px;
+  border-top:#febd00 2px solid;
+  height: 500px;
+}
+
+.currentRoom-container {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 50px;
+  margin-bottom: 50px;
+  margin-top: 50px;
+}
+
+.currentRoom {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: start;
+  gap: 10px
 }
